@@ -48,14 +48,19 @@ type Props = {
   winnerByBracket: Record<string, string>;
   liveScoreByBracket: Record<string, number>;
   dynamicMaxByBracket: Record<string, number>;
+  locked?: boolean;
 };
 
-export default function GroupLeaderboard({ group, members, entries, currentUserId, winnerByBracket, liveScoreByBracket, dynamicMaxByBracket }: Props) {
+export default function GroupLeaderboard({ group, members, entries, currentUserId, winnerByBracket, liveScoreByBracket, dynamicMaxByBracket, locked = false }: Props) {
   const [copied, setCopied] = useState(false)
   const [myBrackets, setMyBrackets] = useState<Array<{ id: string; name: string }>>([])
   const [addingBracket, setAddingBracket] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [removingEntry, setRemovingEntry] = useState<string | null>(null)
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [groupName, setGroupName] = useState(group.name)
+  const [editingName, setEditingName] = useState(group.name)
+  const [savingName, setSavingName] = useState(false)
   const supabase = createClient()
   const isOwner = group.created_by === currentUserId
 
@@ -75,7 +80,7 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
   }
 
   async function deleteGroup() {
-    const first = window.confirm(`Are you sure you want to delete "${group.name}"? This cannot be undone.`)
+    const first = window.confirm(`Are you sure you want to delete "${groupName}"? This cannot be undone.`)
     if (!first) return
     const second = window.confirm(`This will permanently delete the group and remove all ${entries.length} bracket entries. Delete anyway?`)
     if (!second) return
@@ -92,6 +97,16 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
     await supabase.from('group_bracket_entries').delete().eq('id', entryId)
     window.location.reload()
     setRemovingEntry(null)
+  }
+
+  async function saveGroupName() {
+    const trimmed = editingName.trim()
+    if (!trimmed || trimmed === groupName) { setIsEditingName(false); return }
+    setSavingName(true)
+    const { error } = await supabase.from('groups').update({ name: trimmed }).eq('id', group.id)
+    if (!error) setGroupName(trimmed)
+    setSavingName(false)
+    setIsEditingName(false)
   }
 
   async function enterBracket(bracketId: string) {
@@ -119,7 +134,37 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
       {/* Group header */}
       <div className="flex items-start justify-between mb-6 gap-3">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-bold">{group.name}</h1>
+          {isOwner && isEditingName ? (
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={editingName}
+                onChange={e => setEditingName(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') saveGroupName()
+                  if (e.key === 'Escape') { setIsEditingName(false); setEditingName(groupName) }
+                }}
+                onBlur={saveGroupName}
+                maxLength={80}
+                disabled={savingName}
+                className="text-2xl sm:text-3xl font-bold bg-gray-800 border border-yellow-500 rounded-lg px-3 py-1 text-white focus:outline-none w-64 sm:w-80"
+              />
+              <span className="text-xs text-gray-500">Enter to save · Esc to cancel</span>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2 group/name">
+              <h1 className="text-2xl sm:text-3xl font-bold">{groupName}</h1>
+              {isOwner && (
+                <button
+                  onClick={() => { setEditingName(groupName); setIsEditingName(true) }}
+                  title="Rename group"
+                  className="opacity-0 group-hover/name:opacity-100 transition-opacity text-gray-500 hover:text-gray-300 p-1 rounded"
+                >
+                  ✏️
+                </button>
+              )}
+            </div>
+          )}
           <p className="text-gray-400 mt-1 text-sm">
             {members.length} member{members.length !== 1 ? 's' : ''} · {entries.length} bracket{entries.length !== 1 ? 's' : ''}
           </p>
@@ -146,8 +191,13 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
         </div>
       </div>
 
-      {/* Add bracket row */}
-      <div className="flex gap-3 mb-6">
+      {/* Add bracket row — hidden after lock */}
+      {locked && (
+        <div className="mb-6 px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-sm text-gray-400 text-center">
+          🔒 Brackets are locked — the tournament has started
+        </div>
+      )}
+      {!locked && <div className="flex gap-3 mb-6">
         <div className="flex-1 bg-gray-800 rounded-xl px-4 py-3 border border-yellow-500/30">
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400 whitespace-nowrap">Add bracket:</span>
@@ -174,7 +224,8 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
             </a>
           </div>
         </div>
-      </div>
+      </div>}
+
 
       {/* Leaderboard */}
       <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -237,7 +288,7 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
                     })()}
                   </div>
                   </Link>
-                  {isMe && (
+                  {isMe && !locked && (
                     <button
                       onClick={() => removeEntry(entry.id)}
                       disabled={removingEntry === entry.id}
