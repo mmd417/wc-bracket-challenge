@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import NavBar from '@/components/NavBar'
+import { isTournamentStarted } from '@/lib/tournament-data'
 
 type GroupPreview = {
   id: string
@@ -29,6 +30,9 @@ function JoinPage() {
   const [loadingPreview, setLoadingPreview] = useState(false)
   const [joining, setJoining] = useState(false)
   const [error, setError] = useState('')
+  const [allowLateEntry, setAllowLateEntry] = useState(false)
+  const [entriesOpen, setEntriesOpen] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const router = useRouter()
   const supabase = createClient()
 
@@ -37,6 +41,15 @@ function JoinPage() {
     if (codeParam) loadPreview(codeParam)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codeParam])
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (!user) return
+      supabase.from('profiles').select('allow_late_entry').eq('id', user.id).single()
+        .then(({ data }) => { if (data?.allow_late_entry) setAllowLateEntry(true) })
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   async function loadPreview(inviteCode: string) {
     setLoadingPreview(true)
@@ -55,6 +68,14 @@ function JoinPage() {
     }
 
     setGroup(foundGroup)
+
+    // Fetch entries_open flag
+    const { data: groupDetail } = await supabase
+      .from('groups')
+      .select('entries_open')
+      .eq('id', foundGroup.id)
+      .single()
+    setEntriesOpen(!!groupDetail?.entries_open)
 
     // Fetch member count
     const { count } = await supabase
@@ -105,6 +126,7 @@ function JoinPage() {
     router.push(`/groups/${group.id}`)
   }
 
+  const locked = isTournamentStarted() && !allowLateEntry && !entriesOpen
   const sorted = entries
 
   return (
@@ -160,26 +182,36 @@ function JoinPage() {
                 {sorted.length === 0 ? (
                   <p className="text-gray-500 text-sm italic py-2">No brackets entered yet — be the first!</p>
                 ) : (
-                  <div className="space-y-2">
-                    {sorted.map((entry, idx) => (
-                      <div key={entry.id} className="flex items-center gap-3 py-2">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
-                          idx === 0 ? 'bg-yellow-500 text-black'
-                          : idx === 1 ? 'bg-gray-400 text-black'
-                          : idx === 2 ? 'bg-amber-700 text-white'
-                          : 'bg-gray-700 text-gray-300'
-                        }`}>
-                          {idx + 1}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate">
-                            {entry.profiles?.display_name || 'Unknown'}
+                  <>
+                    <div className="space-y-2">
+                      {(showAll ? sorted : sorted.slice(0, 6)).map((entry, idx) => (
+                        <div key={entry.id} className="flex items-center gap-3 py-2">
+                          <div className={`w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs flex-shrink-0 ${
+                            idx === 0 ? 'bg-yellow-500 text-black'
+                            : idx === 1 ? 'bg-gray-400 text-black'
+                            : idx === 2 ? 'bg-amber-700 text-white'
+                            : 'bg-gray-700 text-gray-300'
+                          }`}>
+                            {idx + 1}
                           </div>
-                          <div className="text-xs text-gray-500 truncate">{entry.brackets?.name}</div>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm truncate">
+                              {entry.profiles?.display_name || 'Unknown'}
+                            </div>
+                            <div className="text-xs text-gray-500 truncate">{entry.brackets?.name}</div>
+                          </div>
                         </div>
-                      </div>
-                    ))}
-                  </div>
+                      ))}
+                    </div>
+                    {sorted.length > 6 && (
+                      <button
+                        onClick={() => setShowAll(v => !v)}
+                        className="w-full mt-2 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                      >
+                        {showAll ? '▲ Show less' : `▼ See all ${sorted.length} entries`}
+                      </button>
+                    )}
+                  </>
                 )}
                 <p className="text-xs text-gray-600 mt-4 text-center italic">
                   Champion picks are hidden until you join
@@ -196,6 +228,10 @@ function JoinPage() {
               >
                 Go to Group →
               </button>
+            ) : locked ? (
+              <div className="w-full py-3 bg-gray-800 border border-gray-700 rounded-lg text-center text-gray-500 text-sm">
+                🔒 The tournament has started and this group is not accepting new members
+              </div>
             ) : (
               <button
                 onClick={handleJoin}
@@ -205,7 +241,7 @@ function JoinPage() {
                 {joining ? 'Joining…' : `Join ${group.name}`}
               </button>
             )}
-            {!currentUserId && (
+            {!currentUserId && !locked && (
               <p className="text-center text-sm text-gray-500">
                 You&apos;ll be asked to sign in before joining
               </p>

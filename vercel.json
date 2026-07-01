@@ -1,1 +1,8 @@
-{}
+{
+  "crons": [
+    {
+      "path": "/api/update-scores",
+      "schedule": "*/30 * * * *"
+    }
+  ]
+}

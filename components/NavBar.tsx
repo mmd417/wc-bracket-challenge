@@ -18,8 +18,22 @@ export default function NavBar({ profile }: { profile: { display_name: string } 
         <Link href="/dashboard" className="font-bold text-xl text-yellow-400">
           ⚽ WC 2026
         </Link>
-        <div className="flex items-center gap-4">
-          <span className="text-gray-400 text-sm">{profile?.display_name}</span>
+        <div className="flex items-center gap-3">
+          <Link href="/leaderboard" className="text-sm text-gray-400 hover:text-white transition-colors" title="Leaderboard">
+            <span>🏆</span>
+            <span className="hidden sm:inline"> Leaderboard</span>
+          </Link>
+          <Link href="/settings" className="text-gray-400 hover:text-white text-sm max-w-[100px] truncate transition-colors" title="Edit profile">{profile?.display_name}</Link>
+          <a
+            href="https://buymeacoffee.com/mattdz"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-sm text-yellow-400 hover:text-yellow-300 transition-colors"
+            title="Support the app"
+          >
+            <span>☕</span>
+            <span className="hidden sm:inline">Support</span>
+          </a>
           <button
             onClick={signOut}
             className="text-sm text-gray-400 hover:text-white transition-colors"

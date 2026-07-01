@@ -30,6 +30,7 @@ type GroupData = {
   name: string;
   invite_code: string;
   created_by: string;
+  entries_open: boolean;
 };
 
 type Member = {
@@ -48,10 +49,12 @@ type Props = {
   winnerByBracket: Record<string, string>;
   liveScoreByBracket: Record<string, number>;
   dynamicMaxByBracket: Record<string, number>;
+  globalPercentileByBracket?: Record<string, number>;
   locked?: boolean;
+  allowLateEntry?: boolean;
 };
 
-export default function GroupLeaderboard({ group, members, entries, currentUserId, winnerByBracket, liveScoreByBracket, dynamicMaxByBracket, locked = false }: Props) {
+export default function GroupLeaderboard({ group, members, entries, currentUserId, winnerByBracket, liveScoreByBracket, dynamicMaxByBracket, globalPercentileByBracket = {}, locked = false, allowLateEntry = false }: Props) {
   const [copied, setCopied] = useState(false)
   const [myBrackets, setMyBrackets] = useState<Array<{ id: string; name: string }>>([])
   const [addingBracket, setAddingBracket] = useState(false)
@@ -61,6 +64,8 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
   const [groupName, setGroupName] = useState(group.name)
   const [editingName, setEditingName] = useState(group.name)
   const [savingName, setSavingName] = useState(false)
+  const [entriesOpen, setEntriesOpen] = useState(group.entries_open ?? false)
+  const [togglingEntries, setTogglingEntries] = useState(false)
   const supabase = createClient()
   const isOwner = group.created_by === currentUserId
 
@@ -107,6 +112,23 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
     if (!error) setGroupName(trimmed)
     setSavingName(false)
     setIsEditingName(false)
+  }
+
+  async function toggleEntriesOpen() {
+    if (!entriesOpen) {
+      // Opening — show warning
+      const confirmed = window.confirm(
+        '⚠️ Warning: The tournament has already started and some games have been played.\n\n' +
+        'Unlocking this group allows members to add new brackets that were built with knowledge of early results — this may create an unfair advantage.\n\n' +
+        'Are you sure you want to allow new brackets to be added?'
+      )
+      if (!confirmed) return
+    }
+    setTogglingEntries(true)
+    const newVal = !entriesOpen
+    const { error } = await supabase.from('groups').update({ entries_open: newVal }).eq('id', group.id)
+    if (!error) setEntriesOpen(newVal)
+    setTogglingEntries(false)
   }
 
   async function enterBracket(bracketId: string) {
@@ -174,11 +196,25 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
             onClick={copyInviteLink}
             className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-600 hover:border-gray-400 rounded-lg text-xs sm:text-sm transition-colors whitespace-nowrap"
           >
-            {copied ? '✓ Copied!' : '🔗 Invite'}
+            {copied ? '✓ Copied!' : '🔗 Share'}
           </button>
           {isOwner && (
-            <div className="flex flex-col items-end gap-0.5">
+            <div className="flex flex-col items-end gap-1.5">
               <span className="text-xs text-gray-600 font-mono tracking-wide">{group.invite_code}</span>
+              {locked && (
+                <button
+                  onClick={toggleEntriesOpen}
+                  disabled={togglingEntries}
+                  title={entriesOpen ? 'Lock group — stop allowing new brackets' : 'Unlock group — allow new brackets to be added'}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm transition-colors whitespace-nowrap border ${
+                    entriesOpen
+                      ? 'border-yellow-600 text-yellow-400 hover:border-yellow-400'
+                      : 'border-gray-600 text-gray-400 hover:border-gray-400'
+                  }`}
+                >
+                  {togglingEntries ? '…' : entriesOpen ? '🔓 Close entries' : '🔒 Open entries'}
+                </button>
+              )}
               <button
                 onClick={deleteGroup}
                 disabled={deleting}
@@ -191,13 +227,18 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
         </div>
       </div>
 
-      {/* Add bracket row — hidden after lock */}
-      {locked && (
+      {/* Add bracket row — visible pre-tournament, or when group owner has opened entries, or user has late-entry access */}
+      {locked && !entriesOpen && (
         <div className="mb-6 px-4 py-3 bg-gray-800/50 border border-gray-700 rounded-xl text-sm text-gray-400 text-center">
           🔒 Brackets are locked — the tournament has started
         </div>
       )}
-      {!locked && <div className="flex gap-3 mb-6">
+      {entriesOpen && locked && (
+        <div className="mb-3 px-4 py-2 bg-yellow-900/20 border border-yellow-700/40 rounded-xl text-xs text-yellow-500 text-center">
+          ⚠️ Entries open — the group owner has allowed new brackets. Note: some games have already been played.
+        </div>
+      )}
+      {(!locked || entriesOpen) && <div className="flex gap-3 mb-6">
         <div className="flex-1 bg-gray-800 rounded-xl px-4 py-3 border border-yellow-500/30">
           <div className="flex items-center gap-2">
             <span className="text-xs text-gray-400 whitespace-nowrap">Add bracket:</span>
@@ -279,6 +320,9 @@ export default function GroupLeaderboard({ group, members, entries, currentUserI
                     <div className="font-bold text-yellow-400">
                       {liveScoreByBracket[entry.bracket_id] ?? entry.brackets?.total_score ?? 0} pts
                     </div>
+                    {globalPercentileByBracket[entry.bracket_id] !== undefined && (
+                      <div className="text-xs text-gray-500">top {globalPercentileByBracket[entry.bracket_id]}%</div>
+                    )}
                     {(() => {
                       const live = liveScoreByBracket[entry.bracket_id] ?? 0
                       const max = dynamicMaxByBracket[entry.bracket_id] ?? 0

@@ -5,6 +5,8 @@ import { isTournamentStarted, TEAMS } from '@/lib/tournament-data'
 import NavBar from '@/components/NavBar'
 import { calculateDynamicMax, calculateCurrentScore } from '@/lib/scoring'
 import DeleteBracketButton from '@/components/DeleteBracketButton'
+import SupportCard from '@/components/SupportCard'
+import ScoringGuide from '@/components/ScoringGuide'
 
 function ordinal(n: number) {
   const s = ['th', 'st', 'nd', 'rd']
@@ -23,9 +25,30 @@ export default async function DashboardPage() {
   const { data: groupMemberships } = await supabase
     .from('group_members').select('*, groups(*)').eq('user_id', user.id)
 
+  const { data: announcement } = await supabase
+    .from('announcements').select('message, updated_at').order('id', { ascending: false }).limit(1).single()
+
   const locked = isTournamentStarted()
+  const lateEntry = !!profile?.allow_late_entry
+  const canCreateBracket = !locked || lateEntry   // new bracket + delete
+  const canJoinGroup = true                        // anyone can join a group at any time
+  const canCreateGroup = true                      // anyone can create a group (post-tournament groups auto-open entries)
 
   const bracketIds = (brackets || []).map((b: any) => b.id)
+
+  // Global scores for percentile computation
+  const { data: globalScoreRows } = await supabase
+    .from('brackets')
+    .select('id, total_score')
+    .eq('is_complete', true)
+  const globalScores = (globalScoreRows || []).map((r: any) => r.total_score ?? 0).sort((a: number, b: number) => b - a)
+  const globalTotal = globalScores.length
+  function globalPercentile(score: number) {
+    if (globalTotal <= 1) return 1
+    const rank = globalScores.findIndex((s: number) => s <= score)
+    const r = rank === -1 ? globalTotal : rank
+    return Math.max(1, Math.round((r / globalTotal) * 100))
+  }
 
   // Fetch all picks + results needed for dynamic max potential
   const [
@@ -131,7 +154,7 @@ export default async function DashboardPage() {
               {locked ? '🔒 Tournament has started — brackets are locked' : '✏️ Edit your brackets before the tournament starts'}
             </p>
           </div>
-          {!locked && (
+          {canCreateBracket && (
             <Link href="/brackets/new" className="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-lg transition-colors">
               + New Bracket
             </Link>
@@ -143,7 +166,7 @@ export default async function DashboardPage() {
             <div className="text-5xl mb-4">🏆</div>
             <h2 className="text-xl font-semibold mb-2">No brackets yet</h2>
             <p className="text-gray-400 mb-6">Create your first bracket to get started</p>
-            {!locked && (
+            {canCreateBracket && (
               <Link href="/brackets/new" className="px-6 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-lg transition-colors">
                 Create Bracket
               </Link>
@@ -164,10 +187,15 @@ export default async function DashboardPage() {
                         <span className="text-xs bg-orange-900/60 text-orange-300 border border-orange-700/50 px-2 py-0.5 rounded">Incomplete</span>
                       )}
                       {b.is_locked && <span className="text-xs bg-gray-700 text-gray-400 px-2 py-0.5 rounded">Locked</span>}
-                      {!locked && <DeleteBracketButton bracketId={b.id} bracketName={b.name} />}
+                      {(canCreateBracket || !b.is_complete) && <DeleteBracketButton bracketId={b.id} bracketName={b.name} />}
                     </div>
                   </div>
-                  <div className="text-3xl font-bold text-yellow-400">{liveScoreByBracket[b.id] ?? b.total_score} pts</div>
+                  <div className="flex items-baseline gap-3">
+                    <div className="text-3xl font-bold text-yellow-400">{liveScoreByBracket[b.id] ?? b.total_score} pts</div>
+                    {b.is_complete && globalTotal > 0 && (
+                      <span className="text-xs text-gray-400">top {globalPercentile(liveScoreByBracket[b.id] ?? b.total_score)}%</span>
+                    )}
+                  </div>
                   {dynamicMaxByBracket[b.id] > (liveScoreByBracket[b.id] ?? 0) && (
                     <div className="text-xs text-gray-500 mt-1">
                       Max potential: <span className="text-green-400 font-medium">{dynamicMaxByBracket[b.id]} pts</span>
@@ -191,11 +219,11 @@ export default async function DashboardPage() {
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-2xl font-bold">My Groups</h2>
           <div className="flex gap-3">
-            <Link href="/groups/join" className="px-4 py-2 border border-gray-600 hover:border-gray-400 rounded-lg text-sm transition-colors">
-              Join Group
+            <Link href="/groups/join" className="px-4 py-2 border border-gray-600 hover:border-gray-400 rounded-lg text-sm transition-colors whitespace-nowrap">
+              {locked ? '🕐 Join a group' : 'Join Group'}
             </Link>
-            <Link href="/groups/new" className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-lg text-sm transition-colors">
-              + New Group
+            <Link href="/groups/new" className="px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-bold rounded-lg text-sm transition-colors whitespace-nowrap">
+              {locked ? '🕐 New group' : '+ New Group'}
             </Link>
           </div>
         </div>
@@ -233,6 +261,9 @@ export default async function DashboardPage() {
             })}
           </div>
         )}
+        {/* Scoring Guide + Support + Feedback */}
+        <ScoringGuide />
+        <SupportCard userId={user.id} announcement={announcement?.message || null} />
       </main>
     </div>
   )

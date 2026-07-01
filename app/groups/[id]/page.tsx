@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import NavBar from '@/components/NavBar'
 import GroupLeaderboard from '@/components/GroupLeaderboard'
 import { calculateCurrentScore, calculateDynamicMax } from '@/lib/scoring'
+import { isTournamentStarted } from '@/lib/tournament-data'
 
 export default async function GroupPage({
   params,
@@ -48,6 +49,20 @@ export default async function GroupPage({
 
   const bracketIds = (entries || []).map((e: any) => e.bracket_id)
 
+  // Global scores for site-wide percentile
+  const { data: globalScoreRows } = await supabase
+    .from('brackets')
+    .select('total_score')
+    .eq('is_complete', true)
+  const globalScores = (globalScoreRows || []).map((r: any) => r.total_score ?? 0).sort((a: number, b: number) => b - a)
+  const globalTotal = globalScores.length
+  function globalPercentile(score: number) {
+    if (globalTotal <= 1) return 1
+    const rank = globalScores.findIndex((s: number) => s <= score)
+    const r = rank === -1 ? globalTotal : rank
+    return Math.max(1, Math.round((r / globalTotal) * 100))
+  }
+
   // Fetch all picks + results needed for live scoring
   const [
     { data: allGroupPicks },
@@ -73,13 +88,20 @@ export default async function GroupPage({
     const tp = (allThirdPicks || []).filter((p: any) => p.bracket_id === bracketId).map((p: any) => p.team_code)
     const kp = (allKnockoutPicks || []).filter((p: any) => p.bracket_id === bracketId)
     const gr = groupResults || []
-    const kr = knockoutResults || []
+    const kr = (knockoutResults || []).filter((r: any) => r.winner_code != null)
 
     liveScoreByBracket[bracketId] = calculateCurrentScore({ groupPicks: gp, thirdPlacePicks: tp, knockoutPicks: kp, groupResults: gr, knockoutResults: kr })
     dynamicMaxByBracket[bracketId] = calculateDynamicMax({ groupPicks: gp, thirdPlacePicks: tp, knockoutPicks: kp, groupResults: gr, knockoutResults: kr })
 
     const finalPick = kp.find((p: any) => p.round === 'FINAL' && p.match_index === 0)
     if (finalPick) winnerByBracket[bracketId] = finalPick.team_code
+  }
+
+  // Build percentile map for each bracket in this group
+  const globalPercentileByBracket: Record<string, number> = {}
+  for (const bracketId of bracketIds) {
+    const score = liveScoreByBracket[bracketId] ?? 0
+    globalPercentileByBracket[bracketId] = globalPercentile(score)
   }
 
   return (
@@ -93,6 +115,9 @@ export default async function GroupPage({
         winnerByBracket={winnerByBracket}
         liveScoreByBracket={liveScoreByBracket}
         dynamicMaxByBracket={dynamicMaxByBracket}
+        globalPercentileByBracket={globalPercentileByBracket}
+        locked={isTournamentStarted()}
+        allowLateEntry={!!profile?.allow_late_entry}
       />
     </div>
   )

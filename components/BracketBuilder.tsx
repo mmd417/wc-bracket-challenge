@@ -117,10 +117,33 @@ export default function BracketBuilder({
     const validCodes = new Set(
       GROUPS.filter(g => (newGroupPicks[g] || []).length >= 3).map(g => newGroupPicks[g][2])
     )
-    setThirdPlacePicks(prev => prev.filter(c => validCodes.has(c)))
+    setThirdPlacePicks(prev => {
+      const next = prev.filter(c => validCodes.has(c))
+      // If third picks changed, knockout picks may be stale — clear them all
+      if (next.length !== prev.length) setKnockoutPicks({})
+      return next
+    })
+    // Clear knockout picks if any group winner/runner-up changed (slot participants changed)
+    setKnockoutPicks(prev => {
+      const hasAnyPicks = Object.values(prev).some(m => Object.keys(m).length > 0)
+      if (!hasAnyPicks) return prev
+      // Check if any slot-sourced team in prev knockout picks is no longer a valid group winner/runner-up
+      const winners = new Set(GROUPS.map(g => newGroupPicks[g]?.[0]).filter(Boolean))
+      const runners = new Set(GROUPS.map(g => newGroupPicks[g]?.[1]).filter(Boolean))
+      const validR32Teams = new Set([...winners, ...runners])
+      // Add third-place teams that are still valid
+      const validThird = new Set(
+        GROUPS.filter(g => (newGroupPicks[g] || []).length >= 3).map(g => newGroupPicks[g][2])
+      )
+      for (const code of validThird) validR32Teams.add(code)
+      // If any R32 pick is no longer a valid team, wipe knockout picks to avoid broken bracket
+      const r32Picks = Object.values(prev['R32'] || {})
+      if (r32Picks.some(code => !validR32Teams.has(code))) return {}
+      return prev
+    })
   }
 
-  // Auto-assign 3rd-place teams to R32 slots using greedy "most constrained first"
+  // Auto-assign 3rd-place teams to R32 slots using backtracking (guarantees valid assignment)
   function autoAssignThirdSlots(): Record<number, string> {
     const THIRD_SLOT_INDICES = [1, 4, 6, 7, 8, 9, 12, 14]
     const thirdByGroup: Record<string, string> = {}
@@ -128,29 +151,38 @@ export default function BracketBuilder({
       const code = groupPicks[g]?.[2]
       if (code && thirdPlacePicks.includes(code)) thirdByGroup[g] = code
     }
+
+    // Build eligible team list per slot
+    const slotEligible: Record<number, string[]> = {}
+    for (const idx of THIRD_SLOT_INDICES) {
+      const s2 = R32_MATCHES[idx][1]
+      if (s2.type !== 'third') continue
+      slotEligible[idx] = s2.eligibleGroups.filter(g => thirdByGroup[g]).map(g => thirdByGroup[g])
+    }
+
     const assigned: Record<number, string> = {}
     const usedTeams = new Set<string>()
-    const remaining = new Set(THIRD_SLOT_INDICES)
-    while (remaining.size > 0) {
-      let bestIdx = -1
-      let bestEligible: string[] = []
-      for (const idx of remaining) {
-        const s2 = R32_MATCHES[idx][1]
-        if (s2.type !== 'third') continue
-        const eligible = s2.eligibleGroups
-          .filter(g => thirdByGroup[g] && !usedTeams.has(thirdByGroup[g]))
-          .map(g => thirdByGroup[g])
-        if (bestIdx === -1 || eligible.length < bestEligible.length) {
-          bestIdx = idx; bestEligible = eligible
-        }
+
+    function solve(slots: number[]): boolean {
+      if (slots.length === 0) return true
+      // Pick most constrained slot (fewest available options) first
+      const sorted = [...slots].sort(
+        (a, b) => slotEligible[a].filter(t => !usedTeams.has(t)).length
+                - slotEligible[b].filter(t => !usedTeams.has(t)).length
+      )
+      const slot = sorted[0]
+      const rest = sorted.slice(1)
+      for (const teamCode of slotEligible[slot].filter(t => !usedTeams.has(t))) {
+        assigned[slot] = teamCode
+        usedTeams.add(teamCode)
+        if (solve(rest)) return true
+        delete assigned[slot]
+        usedTeams.delete(teamCode)
       }
-      if (bestIdx === -1) break
-      remaining.delete(bestIdx)
-      if (bestEligible.length > 0) {
-        assigned[bestIdx] = bestEligible[0]
-        usedTeams.add(bestEligible[0])
-      }
+      return false
     }
+
+    solve(THIRD_SLOT_INDICES)
     return assigned
   }
 
@@ -434,7 +466,8 @@ export default function BracketBuilder({
         await supabase.from('brackets').update({ name: bracketName, max_potential: maxPotential }).eq('id', bracketId)
       }
 
-      // Save group picks
+      // Save group picks — delete all first so resets are persisted
+      await supabase.from('group_picks').delete().eq('bracket_id', bracketId)
       const groupPickRows = GROUPS
         .filter(g => isGroupComplete(g))
         .map(g => ({
@@ -445,11 +478,8 @@ export default function BracketBuilder({
           third_place: groupPicks[g][2],
           fourth_place: groupPicks[g][3],
         }))
-
       if (groupPickRows.length > 0) {
-        await supabase
-          .from('group_picks')
-          .upsert(groupPickRows, { onConflict: 'bracket_id,group_code' })
+        await supabase.from('group_picks').insert(groupPickRows)
       }
 
       // Save third place picks
@@ -460,7 +490,8 @@ export default function BracketBuilder({
         )
       }
 
-      // Save knockout picks (including R32_THIRD slot assignments)
+      // Save knockout picks — delete all first so resets are persisted
+      await supabase.from('knockout_picks').delete().eq('bracket_id', bracketId)
       const knockoutRows: { bracket_id: string; round: string; match_index: number; team_code: string }[] = []
       for (const [round, matches] of Object.entries(knockoutPicks)) {
         for (const [matchIndexStr, teamCode] of Object.entries(matches)) {
@@ -473,16 +504,14 @@ export default function BracketBuilder({
         }
       }
       if (knockoutRows.length > 0) {
-        await supabase
-          .from('knockout_picks')
-          .upsert(knockoutRows, { onConflict: 'bracket_id,round,match_index' })
+        await supabase.from('knockout_picks').insert(knockoutRows)
       }
 
       // Mark bracket complete if all groups + knockout picks are filled
       const allGroupsFilled2 = GROUPS.every(g => isGroupComplete(g))
       const totalExpectedKnockout = Object.values(ROUND_COUNTS).reduce((a, b) => a + b, 0)
       const isComplete = allGroupsFilled2 && validThirdPicks.length === 8 && knockoutRows.length === totalExpectedKnockout
-      await supabase.from('brackets').update({ is_complete: isComplete }).eq('id', bracketId)
+      await supabase.from('brackets').update({ is_complete: isComplete, last_edited_at: new Date().toISOString() }).eq('id', bracketId)
 
       if (onDone) {
         onDone()

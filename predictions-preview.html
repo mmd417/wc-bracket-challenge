@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Group Stage Predictions Preview</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #030712; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; padding: 24px; }
+  h1 { font-size: 1.75rem; font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: #9ca3af; font-size: 0.85rem; margin-bottom: 28px; }
+  .subtitle span { color: #fff; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: repeat(2, 1fr); } }
+  @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: rgba(31,41,55,0.6); border: 1px solid #374151; border-radius: 16px; overflow: hidden; }
+  .card-header { background: rgba(55,65,81,0.4); padding: 10px 16px; border-bottom: 1px solid #374151; }
+  .card-header h2 { font-size: 0.75rem; font-weight: 700; color: #facc15; text-transform: uppercase; letter-spacing: 0.05em; }
+  .col-headers { padding: 6px 16px 4px; border-bottom: 1px solid rgba(55,65,81,0.5); }
+  .col-row { display: grid; grid-template-columns: 1fr 48px 32px 32px 32px 32px; gap: 8px; }
+  .col-row span { text-align: right; font-size: 0.7rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; }
+  .col-row span:first-child { text-align: left; }
+  .col-sub-row { display: grid; grid-template-columns: 1fr 48px 32px 32px 32px 32px; gap: 8px; margin-bottom: 2px; }
+  .col-sub-row span { font-size: 0.6rem; color: #4b5563; text-align: right; }
+  .col-sub-row .pct-span { grid-column: 3 / 7; text-align: right; }
+  .team-row { display: grid; grid-template-columns: 1fr 48px 32px 32px 32px 32px; gap: 8px; padding: 8px 16px; align-items: center; border-bottom: 1px solid rgba(55,65,81,0.3); }
+  .team-row.favorite { background: rgba(234,179,8,0.05); }
+  .team-name { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .team-name span:last-child { font-size: 0.75rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .odds { font-size: 0.75rem; font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+  .odds.fav { color: #4ade80; }
+  .odds.dog { color: #d1d5db; }
+  .pct { font-size: 0.75rem; text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+  .pct.high { color: #facc15; }
+  .pct.mid { color: #fff; }
+  .pct.low { color: #9ca3af; }
+  .pct.zero { color: #4b5563; }
+  .bar-wrap { padding: 4px 16px 10px; }
+  .bar { display: flex; gap: 2px; height: 6px; border-radius: 99px; overflow: hidden; background: #1f2937; }
+  .bar-seg { background: rgba(234,179,8,0.5); border-radius: 99px; transition: width 0.3s; }
+  .bar-label { font-size: 0.65rem; color: #4b5563; margin-top: 3px; }
+  .footer { text-align: center; font-size: 0.75rem; color: #4b5563; margin-top: 28px; }
+</style>
+</head>
+<body>
+
+<h1>Group Stage Predictions</h1>
+<p class="subtitle">Based on <span id="total">—</span> completed brackets · % columns show how many brackets picked each team to finish in that position · Sorted by odds to win group</p>
+
+<div class="grid" id="groups"></div>
+<p class="footer">Odds are approximate and for reference only. Bracket percentages based on completed brackets only.</p>
+
+<script>
+const GROUPS = ['A','B','C','D','E','F','G','H','I','J','K','L'];
+
+const TEAMS = [
+  { code:'MEX', name:'Mexico',              flag:'🇲🇽', group:'A' },
+  { code:'RSA', name:'South Africa',        flag:'🇿🇦', group:'A' },
+  { code:'KOR', name:'South Korea',         flag:'🇰🇷', group:'A' },
+  { code:'CZE', name:'Czechia',             flag:'🇨🇿', group:'A' },
+  { code:'CAN', name:'Canada',              flag:'🇨🇦', group:'B' },
+  { code:'BIH', name:'Bosnia & Herz.',      flag:'🇧🇦', group:'B' },
+  { code:'QAT', name:'Qatar',               flag:'🇶🇦', group:'B' },
+  { code:'SUI', name:'Switzerland',         flag:'🇨🇭', group:'B' },
+  { code:'BRA', name:'Brazil',              flag:'🇧🇷', group:'C' },
+  { code:'MAR', name:'Morocco',             flag:'🇲🇦', group:'C' },
+  { code:'HAI', name:'Haiti',               flag:'🇭🇹', group:'C' },
+  { code:'SCO', name:'Scotland',            flag:'🏴󠁧󠁢󠁳󠁣󠁴󠁿', group:'C' },
+  { code:'USA', name:'United States',       flag:'🇺🇸', group:'D' },
+  { code:'PAR', name:'Paraguay',            flag:'🇵🇾', group:'D' },
+  { code:'AUS', name:'Australia',           flag:'🇦🇺', group:'D' },
+  { code:'TUR', name:'Turkey',              flag:'🇹🇷', group:'D' },
+  { code:'GER', name:'Germany',             flag:'🇩🇪', group:'E' },
+  { code:'CUW', name:'Curaçao',             flag:'🇨🇼', group:'E' },
+  { code:'CIV', name:'Ivory Coast',         flag:'🇨🇮', group:'E' },
+  { code:'ECU', name:'Ecuador',             flag:'🇪🇨', group:'E' },
+  { code:'NED', name:'Netherlands',         flag:'🇳🇱', group:'F' },
+  { code:'JPN', name:'Japan',               flag:'🇯🇵', group:'F' },
+  { code:'SWE', name:'Sweden',              flag:'🇸🇪', group:'F' },
+  { code:'TUN', name:'Tunisia',             flag:'🇹🇳', group:'F' },
+  { code:'BEL', name:'Belgium',             flag:'🇧🇪', group:'G' },
+  { code:'EGY', name:'Egypt',               flag:'🇪🇬', group:'G' },
+  { code:'IRN', name:'Iran',                flag:'🇮🇷', group:'G' },
+  { code:'NZL', name:'New Zealand',         flag:'🇳🇿', group:'G' },
+  { code:'ESP', name:'Spain',               flag:'🇪🇸', group:'H' },
+  { code:'CPV', name:'Cape Verde',          flag:'🇨🇻', group:'H' },
+  { code:'KSA', name:'Saudi Arabia',        flag:'🇸🇦', group:'H' },
+  { code:'URU', name:'Uruguay',             flag:'🇺🇾', group:'H' },
+  { code:'FRA', name:'France',              flag:'🇫🇷', group:'I' },
+  { code:'SEN', name:'Senegal',             flag:'🇸🇳', group:'I' },
+  { code:'IRQ', name:'Iraq',                flag:'🇮🇶', group:'I' },
+  { code:'NOR', name:'Norway',              flag:'🇳🇴', group:'I' },
+  { code:'ARG', name:'Argentina',           flag:'🇦🇷', group:'J' },
+  { code:'ALG', name:'Algeria',             flag:'🇩🇿', group:'J' },
+  { code:'AUT', name:'Austria',             flag:'🇦🇹', group:'J' },
+  { code:'JOR', name:'Jordan',              flag:'🇯🇴', group:'J' },
+  { code:'POR', name:'Portugal',            flag:'🇵🇹', group:'K' },
+  { code:'COD', name:'DR Congo',            flag:'🇨🇩', group:'K' },
+  { code:'UZB', name:'Uzbekistan',          flag:'🇺🇿', group:'K' },
+  { code:'COL', name:'Colombia',            flag:'🇨🇴', group:'K' },
+  { code:'ENG', name:'England',             flag:'🏴󠁧󠁢󠁥󠁮󠁧󠁿', group:'L' },
+  { code:'CRO', name:'Croatia',             flag:'🇭🇷', group:'L' },
+  { code:'GHA', name:'Ghana',               flag:'🇬🇭', group:'L' },
+  { code:'PAN', name:'Panama',              flag:'🇵🇦', group:'L' },
+];
+
+function impliedProb(odds) {
+  const n = parseInt(odds);
+  return n < 0 ? Math.abs(n) / (Math.abs(n) + 100) : 100 / (n + 100);
+}
+
+const ODDS = {
+  MEX:'-130', CZE:'+200', KOR:'+350', RSA:'+600',
+  CAN:'-150', BIH:'+250', SUI:'+400', QAT:'+500',
+  BRA:'-200', MAR:'+220', SCO:'+500', HAI:'+800',
+  USA:'-160', AUS:'+240', PAR:'+450', TUR:'+550',
+  GER:'-180', CIV:'+280', ECU:'+400', CUW:'+900',
+  NED:'-200', JPN:'+240', SWE:'+450', TUN:'+700',
+  BEL:'-180', IRN:'+300', EGY:'+400', NZL:'+800',
+  ESP:'-200', KSA:'+220', URU:'+400', CPV:'+900',
+  FRA:'-170', SEN:'+230', NOR:'+380', IRQ:'+700',
+  ARG:'-200', ALG:'+250', AUT:'+380', JOR:'+700',
+  POR:'-180', COL:'+230', UZB:'+600', COD:'+800',
+  ENG:'-170', CRO:'+260', GHA:'+400', PAN:'+900',
+};
+
+// Simulated bracket data (placeholder — real data comes from DB in the app)
+// To see real percentages, deploy and visit /predictions
+const SAMPLE_PICKS = {};
+TEAMS.forEach(t => {
+  SAMPLE_PICKS[t.code] = {
+    first:  Math.floor(Math.random() * 60 * impliedProb(ODDS[t.code])),
+    second: Math.floor(Math.random() * 40),
+    third:  Math.floor(Math.random() * 30),
+    fourth: Math.floor(Math.random() * 20),
+  };
+});
+const TOTAL = 1660;
+document.getElementById('total').textContent = TOTAL.toLocaleString() + ' (simulated)';
+
+function pct(n, total) { return total ? Math.round(n / total * 100) : 0; }
+function pctClass(p) { return p >= 50 ? 'high' : p >= 25 ? 'mid' : p > 0 ? 'low' : 'zero'; }
+
+const container = document.getElementById('groups');
+
+GROUPS.forEach(g => {
+  const teams = TEAMS.filter(t => t.group === g)
+    .sort((a,b) => impliedProb(ODDS[b.code]) - impliedProb(ODDS[a.code]));
+
+  const groupTotal = teams.reduce((sum, t) => sum + (SAMPLE_PICKS[t.code]?.first || 0), 0) || 1;
+
+  const card = document.createElement('div');
+  card.className = 'card';
+
+  let rows = teams.map((t, i) => {
+    const s = SAMPLE_PICKS[t.code] || {};
+    const rowTotal = (s.first||0)+(s.second||0)+(s.third||0)+(s.fourth||0) || 1;
+    const f = pct(s.first||0,  rowTotal*4/4);
+    const sc = pct(s.second||0, rowTotal*4/4);
+    const th = pct(s.third||0,  rowTotal*4/4);
+    const fo = pct(s.fourth||0, rowTotal*4/4);
+    const o = ODDS[t.code];
+    return `
+      <div class="team-row ${i===0?'favorite':''}">
+        <div class="team-name">
+          <span>${t.flag}</span>
+          <span>${t.name}</span>
+        </div>
+        <div class="odds ${o.startsWith('-')?'fav':'dog'}">${o}</div>
+        <div class="pct ${pctClass(f)}">${f}%</div>
+        <div class="pct ${pctClass(sc)}">${sc}%</div>
+        <div class="pct ${pctClass(th)}">${th}%</div>
+        <div class="pct ${pctClass(fo)}">${fo}%</div>
+      </div>`;
+  }).join('');
+
+  // bar chart
+  const barSegs = teams.map(t => {
+    const s = SAMPLE_PICKS[t.code] || {};
+    const p = pct(s.first||0, groupTotal);
+    return `<div class="bar-seg" style="width:${p}%" title="${t.name}: ${p}%"></div>`;
+  }).join('');
+
+  card.innerHTML = `
+    <div class="card-header"><h2>Group ${g}</h2></div>
+    <div class="col-headers">
+      <div class="col-row">
+        <span>Team</span>
+        <span>Odds</span>
+        <span>1st</span>
+        <span>2nd</span>
+        <span>3rd</span>
+        <span>4th</span>
+      </div>
+      <div class="col-sub-row">
+        <span></span>
+        <span>to win group</span>
+        <span class="pct-span">% of brackets</span>
+      </div>
+    </div>
+    ${rows}
+    <div class="bar-wrap">
+      <div class="bar">${barSegs}</div>
+      <div class="bar-label">% of brackets picking each team 1st</div>
+    </div>`;
+
+  container.appendChild(card);
+});
+</script>
+</body>
+</html>

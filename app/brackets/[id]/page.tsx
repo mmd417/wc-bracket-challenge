@@ -4,6 +4,8 @@ import { isTournamentStarted } from '@/lib/tournament-data'
 import BracketSummary from '@/components/BracketSummary'
 import NavBar from '@/components/NavBar'
 
+export const dynamic = 'force-dynamic'
+
 export default async function BracketPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = await createClient()
@@ -20,12 +22,14 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
     { data: knockoutPicks },
     { data: groupResults },
     { data: knockoutResults },
+    { data: groupStandings },
   ] = await Promise.all([
     supabase.from('group_picks').select('*').eq('bracket_id', id),
     supabase.from('third_place_picks').select('*').eq('bracket_id', id),
     supabase.from('knockout_picks').select('*').eq('bracket_id', id),
     supabase.from('group_results').select('*'),
     supabase.from('knockout_results').select('*'),
+    supabase.from('group_standings').select('*'),
   ])
 
   const isOwner = bracket.user_id === user.id
@@ -43,6 +47,7 @@ export default async function BracketPage({ params }: { params: Promise<{ id: st
         initialKnockoutPicks={knockoutPicks || []}
         groupResults={groupResults || []}
         knockoutResults={knockoutResults || []}
+        groupStandings={groupStandings || []}
         canEdit={canEdit}
       />
     </div>

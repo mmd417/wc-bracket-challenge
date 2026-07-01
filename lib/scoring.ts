@@ -82,10 +82,18 @@ export function calculateCurrentScore(params: {
   for (const pick of groupPicks) {
     const r = groupResultMap[pick.group_code]
     if (!r) continue
-    if (pick.first_place  === r.first_place)  total += 2 // 1pt position + 1pt advance
-    if (pick.second_place === r.second_place) total += 2
+    // Placement points (exact position)
+    if (pick.first_place  === r.first_place)  total += 1
+    if (pick.second_place === r.second_place) total += 1
     if (pick.third_place  === r.third_place)  total += 1
     if (pick.fourth_place === r.fourth_place) total += 1
+    // Advance points: team advanced via any route (1st, 2nd, or 3rd-place wildcard)
+    for (const pos of ['first_place', 'second_place'] as const) {
+      const code = pick[pos]
+      if (r.first_place === code || r.second_place === code || (r.third_place === code && r.third_advances)) {
+        total += 1
+      }
+    }
   }
 
   for (const code of thirdPlacePicks) {
@@ -93,7 +101,10 @@ export function calculateCurrentScore(params: {
       [p.first_place, p.second_place, p.third_place, p.fourth_place].includes(code)
     )?.group_code
     const r = groupCode ? groupResultMap[groupCode] : undefined
-    if (r?.third_place === code && r?.third_advances) total += 1
+    // Wildcard: award point if team advanced via any route
+    if (r && (r.first_place === code || r.second_place === code || (r.third_place === code && r.third_advances))) {
+      total += 1
+    }
   }
 
   const pointMap: Record<string, number> = {
@@ -153,17 +164,21 @@ export function calculateDynamicMax(params: {
     }
   }
 
-  // 3rd place wildcards: pending if group has no result, else earned or lost
+  // 3rd place wildcards: pending if group has no result or R32 hasn't started yet
+  const r32Started = knockoutResults.some(r => r.round === 'R32')
   for (const code of thirdPlacePicks) {
     const groupCode = groupPicks.find(p =>
       [p.first_place, p.second_place, p.third_place, p.fourth_place].includes(code)
     )?.group_code
     const result = groupCode ? groupResultMap[groupCode] : undefined
     if (!result) {
-      total += 1 // still possible
-    } else if (result.third_place === code && result.third_advances) {
-      total += 1 // earned
+      total += 1 // group not done — still possible
+    } else if (result.first_place === code || result.second_place === code || (result.third_place === code && result.third_advances)) {
+      total += 1 // earned (advanced via any route)
+    } else if (result.third_place === code && !r32Started) {
+      total += 1 // finished 3rd, wildcard decision not yet made
     }
+    // else: definitively lost (not 3rd, or 3rd but R32 confirmed no advance)
   }
 
   // Knockout picks — check per match_index whether that specific match has been played

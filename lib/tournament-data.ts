@@ -78,8 +78,8 @@ export function getTeam(code: string): Team | undefined {
   return TEAMS.find(t => t.code === code);
 }
 
-// Tournament locks June 12, 2026 at 2pm ET (18:00 UTC)
-export const TOURNAMENT_START = new Date('2026-06-12T18:00:00Z');
+// Brackets lock at 2:00 PM Central on June 11, 2026 (19:00 UTC, CDT = UTC-5)
+export const TOURNAMENT_START = new Date('2026-06-11T19:00:00Z');
 
 export function isTournamentStarted(): boolean {
   return new Date() >= TOURNAMENT_START;
