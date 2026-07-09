@@ -102,11 +102,27 @@ async function handler() {
         winner_code: m.winner ?? null,
       })
     }
+
+    // Compare new completed results against what's already stored
+    const newCompletedKeys = new Set(
+      knockoutRows.filter(r => r.winner_code).map(r => `${r.round}-${r.match_index}-${r.winner_code}`)
+    )
+    const { data: existingKnockout } = await supabase
+      .from('knockout_results').select('round,match_index,winner_code').not('winner_code', 'is', null)
+    const existingKeys = new Set(
+      (existingKnockout || []).map((r: any) => `${r.round}-${r.match_index}-${r.winner_code}`)
+    )
+    const hasNewResults = [...newCompletedKeys].some(k => !existingKeys.has(k))
+
     if (knockoutRows.length > 0) {
       await supabase.from('knockout_results').upsert(knockoutRows, { onConflict: 'round,match_index', ignoreDuplicates: false })
     }
 
-    // ── Score all brackets via SQL function ───────────────────────────────
+    // ── Score all brackets only when new completed results came in ────────
+    if (!hasNewResults) {
+      return NextResponse.json({ message: 'No new results — skipping rescore' })
+    }
+
     const { data: result, error: rpcError } = await supabase.rpc('score_all_brackets')
     if (rpcError) return NextResponse.json({ error: rpcError.message }, { status: 500 })
 
