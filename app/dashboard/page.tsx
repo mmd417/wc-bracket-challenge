@@ -110,11 +110,13 @@ export default async function DashboardPage() {
     const { data: standings } = await supabase.rpc('get_group_standings', { p_group_id: groupId })
     if (!standings || standings.length === 0) return
 
-    // Override current user's score with live score (more accurate than total_score)
-    const myBestLiveScore = Math.max(
-      0,
-      ...myBracketIds.map((bid: string) => liveScoreByBracket[bid] ?? 0)
-    )
+    // Only use live score for brackets actually entered in this group
+    const myGroupBracketIds = (groupEntriesByGroup[groupId] || [])
+      .filter((e: any) => (e.brackets?.user_id || e.user_id) === user.id)
+      .map((e: any) => e.brackets?.id)
+      .filter(Boolean)
+    const myBestLiveScore = Math.max(0, ...myGroupBracketIds.map((bid: string) => liveScoreByBracket[bid] ?? 0))
+
     const rows: { user_id: string; best_score: number; display_name: string }[] = standings.map((r: any) =>
       r.user_id === user.id ? { ...r, best_score: myBestLiveScore } : r
     )
@@ -123,10 +125,6 @@ export default async function DashboardPage() {
     const myPlace = rows.findIndex(r => r.user_id === user.id) + 1
     const leader = rows[0]?.display_name || 'Unknown'
 
-    const myGroupBracketIds = (groupEntriesByGroup[groupId] || [])
-      .filter((e: any) => (e.brackets?.user_id || e.user_id) === user.id)
-      .map((e: any) => e.brackets?.id)
-      .filter(Boolean)
     const myBestMax = myGroupBracketIds.reduce((best: number, bid: string) => {
       const m = dynamicMaxByBracket[bid] || 0
       return m > best ? m : best
