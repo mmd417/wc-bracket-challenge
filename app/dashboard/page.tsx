@@ -46,7 +46,7 @@ export default async function DashboardPage() {
   for (const groupId of groupIds) {
     const { data: entries } = await supabase
       .from('group_bracket_entries')
-      .select('user_id, brackets(id, user_id)')
+      .select('user_id, brackets(id, user_id, total_score)')
       .eq('group_id', groupId)
     if (!entries) continue
     groupEntriesByGroup[groupId] = entries
@@ -115,7 +115,11 @@ export default async function DashboardPage() {
     for (const e of entries as any[]) {
       const uid = e.brackets?.user_id || e.user_id
       const bid = e.brackets?.id
-      const score = bid ? (liveScoreByBracket[bid] ?? 0) : 0
+      // Use live score for own brackets; fall back to DB total_score for others (RLS blocks their picks)
+      const isOwn = uid === user.id
+      const score = bid
+        ? (isOwn ? (liveScoreByBracket[bid] ?? 0) : (e.brackets?.total_score ?? 0))
+        : 0
       if (scoreByUser[uid] === undefined || score > scoreByUser[uid]) scoreByUser[uid] = score
     }
 
