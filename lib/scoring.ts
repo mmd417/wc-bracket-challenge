@@ -157,10 +157,18 @@ export function calculateDynamicMax(params: {
     if (!result) {
       total += 6 // 4 position pts + 2 advance pts (1st+2nd) all still possible
     } else {
-      if (pick.first_place  === result.first_place)  total += 2 // 1pt position + 1pt advance
-      if (pick.second_place === result.second_place) total += 2
+      // Position points (exact match)
+      if (pick.first_place  === result.first_place)  total += 1
+      if (pick.second_place === result.second_place) total += 1
       if (pick.third_place  === result.third_place)  total += 1
       if (pick.fourth_place === result.fourth_place) total += 1
+      // Advance points: team advanced via any route (mirrors calculateCurrentScore)
+      for (const pos of ['first_place', 'second_place'] as const) {
+        const code = pick[pos]
+        if (result.first_place === code || result.second_place === code || (result.third_place === code && result.third_advances)) {
+          total += 1
+        }
+      }
     }
   }
 
