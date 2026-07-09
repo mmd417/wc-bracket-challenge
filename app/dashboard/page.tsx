@@ -240,9 +240,6 @@ export default async function DashboardPage() {
                     <div className="text-sm text-gray-400 space-y-0.5">
                       <div>🥇 Current leader: <span className="text-white font-medium">{stats.leader}</span></div>
                       <div>📍 Your place: <span className="text-yellow-400 font-medium">{ordinal(stats.myPlace)} of {stats.totalEntries}</span></div>
-                      {stats.myBestMax > 0 && (
-                        <div>📈 Max potential: <span className="text-green-400 font-medium">{stats.myBestMax} pts</span></div>
-                      )}
                     </div>
                   ) : (
                     <p className="text-sm text-gray-500">No brackets entered yet</p>
