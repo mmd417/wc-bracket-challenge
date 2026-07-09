@@ -34,14 +34,59 @@ export default async function DashboardPage() {
   const canJoinGroup = true                        // anyone can join a group at any time
   const canCreateGroup = true                      // anyone can create a group (post-tournament groups auto-open entries)
 
-  const bracketIds = (brackets || []).map((b: any) => b.id)
+  const myBracketIds = (brackets || []).map((b: any) => b.id)
+
+  // Collect all group bracket IDs across all groups the user belongs to
+  const groupIds = (groupMemberships || []).map((m: any) => m.group_id)
+  const groupEntriesByGroup: Record<string, any[]> = {}
+  const allGroupBracketIds = new Set<string>()
+
+  for (const groupId of groupIds) {
+    const { data: entries } = await supabase
+      .from('group_bracket_entries')
+      .select('user_id, brackets(id, user_id)')
+      .eq('group_id', groupId)
+    if (!entries) continue
+    groupEntriesByGroup[groupId] = entries
+    for (const e of entries as any[]) {
+      if (e.brackets?.id) allGroupBracketIds.add(e.brackets.id)
+    }
+  }
+
+  // All bracket IDs we need to score: user's own + all group brackets
+  const allNeededIds = [...new Set([...myBracketIds, ...allGroupBracketIds])]
+
+  // Fetch all picks + results in parallel
+  const [
+    { data: allGroupPicks },
+    { data: allThirdPicks },
+    { data: allKnockoutPicks },
+    { data: groupResults },
+    { data: knockoutResults },
+  ] = await Promise.all([
+    allNeededIds.length > 0 ? supabase.from('group_picks').select('*').in('bracket_id', allNeededIds).limit(100000) : Promise.resolve({ data: [] }),
+    allNeededIds.length > 0 ? supabase.from('third_place_picks').select('*').in('bracket_id', allNeededIds).limit(100000) : Promise.resolve({ data: [] }),
+    allNeededIds.length > 0 ? supabase.from('knockout_picks').select('*').in('bracket_id', allNeededIds).limit(100000) : Promise.resolve({ data: [] }),
+    supabase.from('group_results').select('*'),
+    supabase.from('knockout_results').select('*'),
+  ])
+
+  const gr = groupResults || []
+  const kr = (knockoutResults || []).filter((r: any) => r.winner_code != null)
+
+  // Live score + dynamic max for all needed brackets
+  const liveScoreByBracket: Record<string, number> = {}
+  const dynamicMaxByBracket: Record<string, number> = {}
+  for (const bracketId of allNeededIds) {
+    const gp = (allGroupPicks || []).filter((p: any) => p.bracket_id === bracketId)
+    const tp = (allThirdPicks || []).filter((p: any) => p.bracket_id === bracketId).map((p: any) => p.team_code)
+    const kp = (allKnockoutPicks || []).filter((p: any) => p.bracket_id === bracketId)
+    liveScoreByBracket[bracketId] = calculateCurrentScore({ groupPicks: gp, thirdPlacePicks: tp, knockoutPicks: kp, groupResults: gr, knockoutResults: kr })
+    dynamicMaxByBracket[bracketId] = calculateDynamicMax({ groupPicks: gp, thirdPlacePicks: tp, knockoutPicks: kp, groupResults: gr, knockoutResults: kr })
+  }
 
   // Global scores for percentile computation
-  const { data: globalScoreRows } = await supabase
-    .from('brackets')
-    .select('id, total_score')
-    .eq('is_complete', true)
-  const globalScores = (globalScoreRows || []).map((r: any) => r.total_score ?? 0).sort((a: number, b: number) => b - a)
+  const globalScores = Object.values(liveScoreByBracket).sort((a, b) => b - a)
   const globalTotal = globalScores.length
   function globalPercentile(score: number) {
     if (globalTotal <= 1) return 1
@@ -50,72 +95,35 @@ export default async function DashboardPage() {
     return Math.max(1, Math.round((r / globalTotal) * 100))
   }
 
-  // Fetch all picks + results needed for dynamic max potential
-  const [
-    { data: allGroupPicks },
-    { data: allThirdPicks },
-    { data: allKnockoutPicks },
-    { data: groupResults },
-    { data: knockoutResults },
-  ] = await Promise.all([
-    bracketIds.length > 0 ? supabase.from('group_picks').select('*').in('bracket_id', bracketIds) : Promise.resolve({ data: [] }),
-    bracketIds.length > 0 ? supabase.from('third_place_picks').select('*').in('bracket_id', bracketIds) : Promise.resolve({ data: [] }),
-    bracketIds.length > 0 ? supabase.from('knockout_picks').select('*').in('bracket_id', bracketIds) : Promise.resolve({ data: [] }),
-    supabase.from('group_results').select('*'),
-    supabase.from('knockout_results').select('*'),
-  ])
-
-  // Live score + dynamic max per bracket
-  const liveScoreByBracket: Record<string, number> = {}
-  const dynamicMaxByBracket: Record<string, number> = {}
-  for (const b of brackets || []) {
-    const gp = (allGroupPicks || []).filter((p: any) => p.bracket_id === b.id)
-    const tp = (allThirdPicks || []).filter((p: any) => p.bracket_id === b.id).map((p: any) => p.team_code)
-    const kp = (allKnockoutPicks || []).filter((p: any) => p.bracket_id === b.id)
-    const gr = groupResults || []
-    const kr = knockoutResults || []
-    liveScoreByBracket[b.id] = calculateCurrentScore({ groupPicks: gp, thirdPlacePicks: tp, knockoutPicks: kp, groupResults: gr, knockoutResults: kr })
-    dynamicMaxByBracket[b.id] = calculateDynamicMax({ groupPicks: gp, thirdPlacePicks: tp, knockoutPicks: kp, groupResults: gr, knockoutResults: kr })
-  }
-
   // Final winner picks for trophy display
   const winnerByBracket: Record<string, string> = {}
   for (const p of (allKnockoutPicks || []).filter((p: any) => p.round === 'FINAL' && p.match_index === 0)) {
     winnerByBracket[p.bracket_id] = p.team_code
   }
 
-  // Fetch leaderboard position for each group
-  const groupIds = (groupMemberships || []).map((m: any) => m.group_id)
+  // Group standings using live scores for everyone
   const groupStats: Record<string, { leader: string; myPlace: number; totalEntries: number; myBestMax: number }> = {}
-
-  // Collect all leader IDs first, then batch-fetch profiles in one query
   const leaderIdByGroup: Record<string, string> = {}
-  const sortedByGroup: Record<string, [string, number][]> = {}
 
   for (const groupId of groupIds) {
-    const { data: entries } = await supabase
-      .from('group_bracket_entries')
-      .select('user_id, brackets(id, total_score, user_id)')
-      .eq('group_id', groupId)
-
+    const entries = groupEntriesByGroup[groupId]
     if (!entries || entries.length === 0) continue
 
     const scoreByUser: Record<string, number> = {}
     for (const e of entries as any[]) {
       const uid = e.brackets?.user_id || e.user_id
       const bid = e.brackets?.id
-      const score = (bid && liveScoreByBracket[bid] !== undefined) ? liveScoreByBracket[bid] : (e.brackets?.total_score || 0)
+      const score = bid ? (liveScoreByBracket[bid] ?? 0) : 0
       if (scoreByUser[uid] === undefined || score > scoreByUser[uid]) scoreByUser[uid] = score
     }
 
     const sorted = Object.entries(scoreByUser).sort((a, b) => b[1] - a[1])
-    sortedByGroup[groupId] = sorted
 
-    const myBracketIds = (entries as any[])
+    const myGroupBracketIds = (entries as any[])
       .filter(e => (e.brackets?.user_id || e.user_id) === user.id)
       .map(e => e.brackets?.id)
       .filter(Boolean)
-    const myBestMax = myBracketIds.reduce((best: number, bid: string) => {
+    const myBestMax = myGroupBracketIds.reduce((best: number, bid: string) => {
       const m = dynamicMaxByBracket[bid] || 0
       return m > best ? m : best
     }, 0)
@@ -124,7 +132,7 @@ export default async function DashboardPage() {
     if (leaderId) leaderIdByGroup[groupId] = leaderId
 
     groupStats[groupId] = {
-      leader: 'Unknown', // filled in below
+      leader: 'Unknown',
       myPlace: sorted.findIndex(([uid]) => uid === user.id) + 1,
       totalEntries: sorted.length,
       myBestMax,
