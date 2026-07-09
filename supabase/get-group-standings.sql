@@ -9,7 +9,7 @@ SECURITY DEFINER
 AS $$
   SELECT
     b.user_id,
-    MAX(b.total_score) AS best_score,
+    MAX(COALESCE(b.total_score, 0)) AS best_score,
     p.display_name
   FROM group_bracket_entries gbe
   JOIN brackets b ON b.id = gbe.bracket_id
