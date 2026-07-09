@@ -103,58 +103,37 @@ export default async function DashboardPage() {
     winnerByBracket[p.bracket_id] = p.team_code
   }
 
-  // Group standings using live scores for everyone
+  // Group standings via SECURITY DEFINER RPC (bypasses RLS on brackets table)
   const groupStats: Record<string, { leader: string; myPlace: number; totalEntries: number; myBestMax: number }> = {}
-  const leaderIdByGroup: Record<string, string> = {}
 
-  for (const groupId of groupIds) {
-    const entries = groupEntriesByGroup[groupId]
-    if (!entries || entries.length === 0) continue
+  await Promise.all(groupIds.map(async (groupId: string) => {
+    const { data: standings } = await supabase.rpc('get_group_standings', { p_group_id: groupId })
+    if (!standings || standings.length === 0) return
 
-    const scoreByUser: Record<string, number> = {}
-    for (const e of entries as any[]) {
-      const uid = e.brackets?.user_id || e.user_id
-      const bid = e.brackets?.id
-      // Use live score for own brackets; fall back to DB total_score for others (RLS blocks their picks)
-      const isOwn = uid === user.id
-      const score = bid
-        ? (isOwn ? (liveScoreByBracket[bid] ?? 0) : (e.brackets?.total_score ?? 0))
-        : 0
-      if (scoreByUser[uid] === undefined || score > scoreByUser[uid]) scoreByUser[uid] = score
-    }
+    // Override current user's score with live score (more accurate than total_score)
+    const myBestLiveScore = Math.max(
+      0,
+      ...myBracketIds.map((bid: string) => liveScoreByBracket[bid] ?? 0)
+    )
+    const rows: { user_id: string; best_score: number; display_name: string }[] = standings.map((r: any) =>
+      r.user_id === user.id ? { ...r, best_score: myBestLiveScore } : r
+    )
+    rows.sort((a, b) => b.best_score - a.best_score)
 
-    const sorted = Object.entries(scoreByUser).sort((a, b) => b[1] - a[1])
+    const myPlace = rows.findIndex(r => r.user_id === user.id) + 1
+    const leader = rows[0]?.display_name || 'Unknown'
 
-    const myGroupBracketIds = (entries as any[])
-      .filter(e => (e.brackets?.user_id || e.user_id) === user.id)
-      .map(e => e.brackets?.id)
+    const myGroupBracketIds = (groupEntriesByGroup[groupId] || [])
+      .filter((e: any) => (e.brackets?.user_id || e.user_id) === user.id)
+      .map((e: any) => e.brackets?.id)
       .filter(Boolean)
     const myBestMax = myGroupBracketIds.reduce((best: number, bid: string) => {
       const m = dynamicMaxByBracket[bid] || 0
       return m > best ? m : best
     }, 0)
 
-    const leaderId = sorted[0]?.[0]
-    if (leaderId) leaderIdByGroup[groupId] = leaderId
-
-    groupStats[groupId] = {
-      leader: 'Unknown',
-      myPlace: sorted.findIndex(([uid]) => uid === user.id) + 1,
-      totalEntries: sorted.length,
-      myBestMax,
-    }
-  }
-
-  // Batch fetch all leader profiles in one query
-  const leaderIds = [...new Set(Object.values(leaderIdByGroup))]
-  if (leaderIds.length > 0) {
-    const { data: leaderProfiles } = await supabase
-      .from('profiles').select('id, display_name').in('id', leaderIds)
-    const profileMap = Object.fromEntries((leaderProfiles || []).map((p: any) => [p.id, p.display_name]))
-    for (const [groupId, leaderId] of Object.entries(leaderIdByGroup)) {
-      groupStats[groupId].leader = profileMap[leaderId] || 'Unknown'
-    }
-  }
+    groupStats[groupId] = { leader, myPlace, totalEntries: rows.length, myBestMax }
+  }))
 
   return (
     <div className="min-h-screen bg-gray-950">
