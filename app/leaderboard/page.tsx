@@ -35,13 +35,13 @@ export default async function LeaderboardPage() {
     { data: knockoutResults },
   ] = await Promise.all([
     bracketIds.length > 0
-      ? supabase.from('group_picks').select('*').in('bracket_id', bracketIds)
+      ? supabase.from('group_picks').select('*').in('bracket_id', bracketIds).limit(500000)
       : Promise.resolve({ data: [] }),
     bracketIds.length > 0
-      ? supabase.from('third_place_picks').select('*').in('bracket_id', bracketIds)
+      ? supabase.from('third_place_picks').select('*').in('bracket_id', bracketIds).limit(500000)
       : Promise.resolve({ data: [] }),
     bracketIds.length > 0
-      ? supabase.from('knockout_picks').select('*').in('bracket_id', bracketIds)
+      ? supabase.from('knockout_picks').select('*').in('bracket_id', bracketIds).limit(500000)
       : Promise.resolve({ data: [] }),
     supabase.from('group_results').select('*'),
     supabase.from('knockout_results').select('*'),
