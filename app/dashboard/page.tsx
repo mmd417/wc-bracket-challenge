@@ -187,11 +187,7 @@ export default async function DashboardPage() {
                       <span className="text-xs text-gray-400">top {globalPercentile(liveScoreByBracket[b.id] ?? b.total_score)}%</span>
                     )}
                   </div>
-                  {dynamicMaxByBracket[b.id] > (liveScoreByBracket[b.id] ?? 0) && (
-                    <div className="text-xs text-gray-500 mt-1">
-                      Max potential: <span className="text-green-400 font-medium">{dynamicMaxByBracket[b.id]} pts</span>
-                    </div>
-                  )}
+
                   {winnerTeam && (
                     <div className="text-sm text-gray-300 mt-2">
                       🏆 {winnerTeam.flag} {winnerTeam.name}

@@ -416,11 +416,6 @@ export default function BracketSummary({
                 <span className="text-xl font-bold text-yellow-400">{totalEarned}</span>
                 <span className="text-xs text-gray-500 ml-1.5">earned</span>
               </div>
-              <div className="w-px h-4 bg-gray-600" />
-              <div>
-                <span className="text-xl font-bold text-green-400">{dynamicMaxPotential}</span>
-                <span className="text-xs text-gray-500 ml-1.5">max potential</span>
-              </div>
               {wrongPicks > 0 && (
                 <>
                   <div className="w-px h-4 bg-gray-600" />
