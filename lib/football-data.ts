@@ -84,7 +84,7 @@ export type EspnMatch = {
 export async function getEspnMatches(): Promise<EspnMatch[] | null> {
   try {
     const res = await fetch(
-      'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260611-20260715&limit=200',
+      'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260611-20260720&limit=200',
       { next: { revalidate: 0 } }
     )
     if (!res.ok) return null
