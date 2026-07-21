@@ -80,15 +80,42 @@ export type EspnMatch = {
   date: string               // ISO date string
 }
 
-// ESPN scoreboard covers all 104 WC matches in one call
-export async function getEspnMatches(): Promise<EspnMatch[] | null> {
+// Fetch scoreboard for a single date range and return raw events
+async function fetchEspnScoreboard(dates: string): Promise<any[]> {
   try {
     const res = await fetch(
-      'https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=20260611-20260720&limit=200',
+      `https://site.api.espn.com/apis/site/v2/sports/soccer/fifa.world/scoreboard?dates=${dates}&limit=100`,
       { next: { revalidate: 0 } }
     )
-    if (!res.ok) return null
+    if (!res.ok) return []
     const data = await res.json()
+    return data.events ?? []
+  } catch {
+    return []
+  }
+}
+
+// ESPN caps results per request, so fetch each phase separately
+export async function getEspnMatches(): Promise<EspnMatch[] | null> {
+  try {
+    // Fetch group stage + each knockout phase in parallel
+    const [groupEvents, r32Events, r16Events, qfEvents, sfEvents, finalEvents] = await Promise.all([
+      fetchEspnScoreboard('20260611-20260628'), // group stage
+      fetchEspnScoreboard('20260629-20260705'), // R32
+      fetchEspnScoreboard('20260705-20260709'), // R16
+      fetchEspnScoreboard('20260710-20260712'), // QF
+      fetchEspnScoreboard('20260714-20260716'), // SF
+      fetchEspnScoreboard('20260718-20260720'), // 3rd place + Final
+    ])
+    const allEvents = [...groupEvents, ...r32Events, ...r16Events, ...qfEvents, ...sfEvents, ...finalEvents]
+    // Deduplicate by event ID
+    const seen = new Set<string>()
+    const events = allEvents.filter(e => {
+      if (seen.has(e.id)) return false
+      seen.add(e.id)
+      return true
+    })
+    const data = { events }
 
     // ESPN abbreviation → our app code
     const ESPN_TLA_MAP: Record<string, string> = {
