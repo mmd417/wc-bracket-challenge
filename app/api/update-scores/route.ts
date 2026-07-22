@@ -5,8 +5,9 @@ import { getEspnStandings, getEspnMatches } from '@/lib/football-data'
 // Called by Vercel cron (GET) every 30 min, or manually via POST with Bearer token.
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization')
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const secret = process.env.CRON_SECRET
+  if (authHeader !== `Bearer ${secret}`) {
+    return NextResponse.json({ error: 'Unauthorized', hint: `server secret length: ${secret?.length ?? 0}, received: ${authHeader?.slice(0, 20)}` }, { status: 401 })
   }
   return handler()
 }
