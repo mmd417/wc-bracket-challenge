@@ -23,14 +23,21 @@ async function handler() {
   try {
     const supabase = await createClient()
 
+    console.log('[update-scores] Fetching ESPN data...')
     const [espnStandings, espnMatches] = await Promise.all([
       getEspnStandings(),
       getEspnMatches(),
     ])
 
+    console.log(`[update-scores] ESPN standings: ${espnStandings?.length ?? 'null'}, matches: ${espnMatches?.length ?? 'null'}`)
+
     if (!espnStandings || !espnMatches) {
       return NextResponse.json({ error: 'Could not fetch ESPN data' }, { status: 503 })
     }
+
+    const knockoutMatchCount = espnMatches.filter(m => m.stage !== 'GROUP').length
+    const completedKnockoutCount = espnMatches.filter(m => m.stage !== 'GROUP' && m.winner).length
+    console.log(`[update-scores] Knockout matches: ${knockoutMatchCount}, completed: ${completedKnockoutCount}`)
 
     // ── group_standings: live W/D/L/GD/Pts for display ─────────────────
     const standingsRows = espnStandings.map(r => ({
